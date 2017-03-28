@@ -1,6 +1,9 @@
 # encoding: utf-8
 # author: Gary Bright @username-is-already-taken2
 # author: Chris Beard @cdbeard2016
+
+require 'csv'
+
 module Inspec::Resources
   class WindowsTasks < Inspec.resource(1)
     name 'windows_task'
@@ -77,15 +80,17 @@ module Inspec::Resources
       # script = "Get-ScheduledTask | ? { $_.URI -eq '#{@taskuri}' } | Select-Object URI,@{N='State';E={$_.State.ToString()}} | ConvertTo-Json"
 
       # Using schtasks as suggested by @modille but aligning property names to match cmdlet to future proof.
-      script = "schtasks /query /v /fo csv /tn '#{@taskuri}' | ConvertFrom-Csv | Select @{N='URI';E={$_.TaskName}},@{N='State';E={$_.Status.ToString()}},'Logon Mode','Last Result','Task To Run','Run As User','Scheduled Task State' | ConvertTo-Json -Compress"
+
+      script = "schtasks /query /v /fo csv /tn '#{@taskuri}' | ConvertFrom-Csv | Select @{N='URI';E={$_.TaskName}},@{N='State';E={$_.Status.ToString()}},'Logon Mode','Last Result','Task To Run','Run As User','Scheduled Task State' | ConvertTo-Csv -NoTypeInformation"
 
       cmd = inspec.powershell(script)
 
-      begin
-        params = JSON.parse(cmd.stdout)
-      rescue JSON::ParserError => _e
-        return nil
-      end
+      return nil unless cmd.exit_status == 0
+
+      # Convert CSV to hashes
+      rows = CSV.parse(cmd.stdout)
+      fields = rows.shift.map {|f| f.gsub(" ", "_")}
+      params = rows.collect { |record| Hash[*fields.zip(record).flatten ] }[0]
 
       @cache = {
         uri: params['URI'],
